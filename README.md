@@ -21,6 +21,20 @@ Set these in `/app/backend/.env` (see `.env.example`):
 | `OVERLEAF_GCLB_TOKEN` | Raw value of the `GCLB` cookie |
 | `MONGO_URL` / `DB_NAME` | Pre-provisioned by Emergent; leave as-is |
 
+## Features
+- Tailors resumes to job descriptions using Claude
+- Converts optimized resume content into LaTeX
+- Creates an editable Overleaf project
+- Compiles and returns a downloadable PDF
+- Keeps resume and job description data in memory only
+
+## How It Works
+1. User pastes a job description and current resume
+2. Claude rewrites the resume for ATS alignment
+3. Claude converts the resume into LaTeX
+4. Backend creates and compiles an Overleaf project
+5. User downloads the final PDF or opens the project in Overleaf
+
 ### How to refresh Overleaf cookies
 
 1. Log in to https://www.overleaf.com in a regular browser tab.
