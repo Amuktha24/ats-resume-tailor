@@ -26,6 +26,17 @@ const STATUS_STEPS = [
   "Done!",
 ];
 
+const STAGE_TO_INDEX = {
+  queued: 0,
+  rewriting: 1,
+  latex: 2,
+  overleaf: 3,
+  done: 4,
+};
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_MAX_MS = 5 * 60 * 1000; // 5 minutes
+
 const fadeUp = {
   initial: { y: 20, opacity: 0 },
   animate: { y: 0, opacity: 1 },
@@ -187,7 +198,8 @@ function Generator({ formRef }) {
   const [statusIndex, setStatusIndex] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const statusTimerRef = useRef(null);
+  const pollTimerRef = useRef(null);
+  const pollStartRef = useRef(0);
 
   const canSubmit = useMemo(
     () => jobDescription.trim().length > 0 && currentResume.trim().length > 0 && !loading,
@@ -196,55 +208,82 @@ function Generator({ formRef }) {
 
   useEffect(() => {
     return () => {
-      if (statusTimerRef.current) clearInterval(statusTimerRef.current);
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, []);
 
-  const startStatusAdvance = () => {
-    setStatusIndex(0);
-    let idx = 0;
-    // Advance one step every ~6s, stop before the final "Done!" message
-    statusTimerRef.current = setInterval(() => {
-      idx = Math.min(idx + 1, STATUS_STEPS.length - 2);
-      setStatusIndex(idx);
-    }, 6000);
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
   };
 
-  const stopStatusAdvance = () => {
-    if (statusTimerRef.current) {
-      clearInterval(statusTimerRef.current);
-      statusTimerRef.current = null;
+  const pollJob = async (jobId) => {
+    try {
+      const { data } = await axios.get(`${API}/generate/${jobId}`);
+      const idx = STAGE_TO_INDEX[data.stage];
+      if (idx !== undefined) setStatusIndex(idx);
+
+      if (data.status === "success") {
+        stopPolling();
+        setStatusIndex(STATUS_STEPS.length - 1);
+        setResult(data);
+        setLoading(false);
+        return;
+      }
+      if (data.status === "error") {
+        stopPolling();
+        setError(data.message || "Generation failed.");
+        setLoading(false);
+        return;
+      }
+      // still pending - schedule next poll if under max wait
+      if (Date.now() - pollStartRef.current > POLL_MAX_MS) {
+        stopPolling();
+        setError("Timed out waiting for the resume to compile. Please try again.");
+        setLoading(false);
+        return;
+      }
+      pollTimerRef.current = setTimeout(() => pollJob(jobId), POLL_INTERVAL_MS);
+    } catch (err) {
+      // Transient ingress error - retry a couple of times rather than giving up
+      if (Date.now() - pollStartRef.current > POLL_MAX_MS) {
+        stopPolling();
+        setError(err?.message || "Lost connection while polling.");
+        setLoading(false);
+        return;
+      }
+      pollTimerRef.current = setTimeout(() => pollJob(jobId), POLL_INTERVAL_MS);
     }
   };
 
   const handleGenerate = async () => {
     setError(null);
     setResult(null);
+    setStatusIndex(0);
     setLoading(true);
-    startStatusAdvance();
 
     try {
       const { data } = await axios.post(`${API}/generate`, {
         jobDescription,
         currentResume,
       });
-      stopStatusAdvance();
-
-      if (data.status === "success") {
-        setStatusIndex(STATUS_STEPS.length - 1);
-        setResult(data);
-      } else {
-        setError(data.message || "Something went wrong. Please try again.");
+      if (!data?.jobId) {
+        throw new Error("Server did not return a jobId.");
       }
+      pollStartRef.current = Date.now();
+      pollTimerRef.current = setTimeout(
+        () => pollJob(data.jobId),
+        POLL_INTERVAL_MS
+      );
     } catch (err) {
-      stopStatusAdvance();
       const msg =
         err?.response?.data?.detail ||
         err?.response?.data?.message ||
         err?.message ||
         "Request failed.";
       setError(msg);
-    } finally {
       setLoading(false);
     }
   };

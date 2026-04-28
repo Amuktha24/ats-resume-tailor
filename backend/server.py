@@ -69,6 +69,67 @@ def _check_rate_limit(ip: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Background job store - in-memory, no persistence (privacy requirement)
+# ---------------------------------------------------------------------------
+_JOB_TTL = 30 * 60  # seconds - keep finished jobs around for 30 min
+_jobs: Dict[str, dict] = {}
+
+
+def _purge_old_jobs() -> None:
+    now = time.time()
+    stale = [jid for jid, j in _jobs.items() if now - j.get("createdAt", now) > _JOB_TTL]
+    for jid in stale:
+        _jobs.pop(jid, None)
+
+
+async def _run_generation_job(job_id: str, jd: str, resume: str) -> None:
+    """Run the full pipeline and store the result on the job."""
+    try:
+        _jobs[job_id]["stage"] = "rewriting"
+        rewriter_prompt = REWRITER_SYSTEM_PROMPT.replace(
+            "{JOB_DESCRIPTION}", jd
+        ).replace("{CURRENT_RESUME}", resume)
+        markdown_resume = await _call_claude(
+            system_prompt=rewriter_prompt,
+            user_text="Generate the ATS-optimized resume now.",
+            max_tokens=4096,
+        )
+        logger.info("[job %s] Claude rewrite complete (%d chars)", job_id, len(markdown_resume))
+
+        _jobs[job_id]["stage"] = "latex"
+        latex_prompt = LATEX_SYSTEM_PROMPT.replace("{MARKDOWN_RESUME}", markdown_resume)
+        latex_raw = await _call_claude(
+            system_prompt=latex_prompt,
+            user_text="Output the final LaTeX now. No fences, no commentary.",
+            max_tokens=8192,
+        )
+        latex_code = _clean_latex(latex_raw)
+        if os.environ.get("DEBUG_LATEX") == "1":
+            try:
+                Path("/tmp/last_resume.tex").write_text(latex_code)
+            except Exception:  # noqa: BLE001
+                pass
+        logger.info("[job %s] LaTeX generated (%d chars)", job_id, len(latex_code))
+
+        _jobs[job_id]["stage"] = "overleaf"
+        result = await asyncio.to_thread(_run_overleaf_pipeline, latex_code)
+        logger.info("[job %s] Overleaf complete: %s", job_id, result["projectUrl"])
+
+        _jobs[job_id].update(
+            status="success",
+            stage="done",
+            projectUrl=result["projectUrl"],
+            pdfUrl=result["pdfUrl"],
+            pdfBase64=result["pdfBase64"],
+        )
+    except HTTPException as exc:
+        _jobs[job_id].update(status="error", stage="failed", message=exc.detail)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[job %s] failed", job_id)
+        _jobs[job_id].update(status="error", stage="failed", message=str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 class GenerateRequest(BaseModel):
@@ -543,60 +604,46 @@ async def health():
     }
 
 
-@api_router.post("/generate", response_model=GenerateResponse)
+@api_router.post("/generate")
 async def generate_resume(payload: GenerateRequest, request: Request):
+    """Kick off the generation as a background job and return a job id.
+
+    The full pipeline (2 Claude calls + Overleaf compile) takes 60-90s, which
+    exceeds the upstream ingress timeout (~60s). The frontend polls
+    GET /api/generate/{job_id} every couple of seconds instead.
+    """
     client_ip = (
         request.headers.get("x-forwarded-for", "").split(",")[0].strip()
         or (request.client.host if request.client else "unknown")
     )
     _check_rate_limit(client_ip)
 
-    # Fail fast on missing Overleaf session so we don't burn Claude tokens.
-    # GCLB is optional - only required in some regions.
     if not os.environ.get("OVERLEAF_SESSION_COOKIE"):
         raise HTTPException(
             status_code=500,
             detail="Overleaf credentials not configured. Please set environment variables.",
         )
 
-    try:
-        # Step 1 - ATS rewrite
-        rewriter_prompt = REWRITER_SYSTEM_PROMPT.replace(
-            "{JOB_DESCRIPTION}", payload.jobDescription
-        ).replace("{CURRENT_RESUME}", payload.currentResume)
-        markdown_resume = await _call_claude(
-            system_prompt=rewriter_prompt,
-            user_text="Generate the ATS-optimized resume now.",
-            max_tokens=4096,
-        )
-        logger.info("Claude rewrite complete (%d chars)", len(markdown_resume))
+    job_id = uuid.uuid4().hex
+    _jobs[job_id] = {
+        "status": "pending",
+        "stage": "queued",
+        "createdAt": time.time(),
+    }
+    asyncio.create_task(
+        _run_generation_job(job_id, payload.jobDescription, payload.currentResume)
+    )
+    _purge_old_jobs()
+    return {"status": "pending", "jobId": job_id}
 
-        # Step 2 - LaTeX conversion
-        latex_prompt = LATEX_SYSTEM_PROMPT.replace("{MARKDOWN_RESUME}", markdown_resume)
-        latex_raw = await _call_claude(
-            system_prompt=latex_prompt,
-            user_text="Output the final LaTeX now. No fences, no commentary.",
-            max_tokens=8192,
-        )
-        latex_code = _clean_latex(latex_raw)
-        # Debug: persist the last generated LaTeX (no PII unless DEBUG_LATEX=1)
-        if os.environ.get("DEBUG_LATEX") == "1":
-            try:
-                Path("/tmp/last_resume.tex").write_text(latex_code)
-            except Exception:  # noqa: BLE001
-                pass
-        logger.info("LaTeX generated (%d chars)", len(latex_code))
 
-        # Steps 3-7 - Overleaf pipeline (blocking I/O, offload to thread)
-        result = await asyncio.to_thread(_run_overleaf_pipeline, latex_code)
-        logger.info("Overleaf pipeline complete: %s", result["projectUrl"])
-
-        return GenerateResponse(status="success", **result)
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("generate_resume failed")
-        return GenerateResponse(status="error", message=str(exc))
+@api_router.get("/generate/{job_id}")
+async def get_generation_status(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or expired.")
+    # Strip internal fields from response
+    return {k: v for k, v in job.items() if k != "createdAt"}
 
 
 # ---------------------------------------------------------------------------
