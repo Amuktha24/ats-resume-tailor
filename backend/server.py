@@ -392,7 +392,7 @@ async def _call_claude(system_prompt: str, user_text: str, max_tokens: int) -> s
             system_message=system_prompt,
         )
         .with_model("anthropic", "claude-sonnet-4-5-20250929")
-        .with_max_tokens(max_tokens)
+        .with_params(max_tokens=max_tokens)
     )
     message = UserMessage(text=user_text)
     response = await chat.send_message(message)
@@ -413,13 +413,16 @@ OVERLEAF_UA = (
 def _overleaf_cookies() -> str:
     session = os.environ.get("OVERLEAF_SESSION_COOKIE", "")
     gclb = os.environ.get("OVERLEAF_GCLB_TOKEN", "")
-    if not session or not gclb:
+    if not session:
         raise HTTPException(
             status_code=500,
             detail="Overleaf credentials not configured. Please set environment variables.",
         )
     session = unquote(session)
-    return f"overleaf_session2={session}; GCLB={gclb}"
+    cookie = f"overleaf_session2={session}"
+    if gclb:
+        cookie += f"; GCLB={gclb}"
+    return cookie
 
 
 def _fetch_csrf(cookie_header: str) -> str:
@@ -429,6 +432,16 @@ def _fetch_csrf(cookie_header: str) -> str:
         timeout=30,
         allow_redirects=True,
     )
+    # If we ended up on /login, the session cookie is invalid/expired.
+    if "/login" in resp.url:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Overleaf session cookie is not authenticated. "
+                "Log in to overleaf.com, then copy a fresh `overleaf_session2` "
+                "value from DevTools > Application > Cookies."
+            ),
+        )
     html = resp.text
     match = re.search(r'name="ol-csrfToken" content="([^"]+)"', html) or re.search(
         r'content="([^"]+)" name="ol-csrfToken"', html
@@ -549,10 +562,7 @@ async def health():
         "anthropicConfigured": bool(
             os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("EMERGENT_LLM_KEY")
         ),
-        "overleafConfigured": bool(
-            os.environ.get("OVERLEAF_SESSION_COOKIE")
-            and os.environ.get("OVERLEAF_GCLB_TOKEN")
-        ),
+        "overleafConfigured": bool(os.environ.get("OVERLEAF_SESSION_COOKIE")),
     }
 
 
@@ -564,11 +574,9 @@ async def generate_resume(payload: GenerateRequest, request: Request):
     )
     _check_rate_limit(client_ip)
 
-    # Fail fast on missing Overleaf config so we don't burn Claude tokens
-    if not (
-        os.environ.get("OVERLEAF_SESSION_COOKIE")
-        and os.environ.get("OVERLEAF_GCLB_TOKEN")
-    ):
+    # Fail fast on missing Overleaf session so we don't burn Claude tokens.
+    # GCLB is optional - only required in some regions.
+    if not os.environ.get("OVERLEAF_SESSION_COOKIE"):
         raise HTTPException(
             status_code=500,
             detail="Overleaf credentials not configured. Please set environment variables.",
