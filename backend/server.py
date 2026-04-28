@@ -239,27 +239,10 @@ Resume text:
 \usepackage[english]{babel}
 \usepackage{tabularx}
 \usepackage{fontawesome5}
-\usepackage[scale=0.90,lf]{FiraMono}
 
 \definecolor{light-grey}{gray}{0.83}
 \definecolor{dark-grey}{gray}{0.3}
-\definecolor{text-grey}{gray}{.08}
-
-\DeclareRobustCommand{\ebseries}{\fontseries{eb}\selectfont}
-\DeclareTextFontCommand{\texteb}{\ebseries}
-
-\usepackage{contour}
-\usepackage[normalem]{ulem}
-\renewcommand{\ULdepth}{1.8pt}
-\contourlength{0.8pt}
-\newcommand{\myuline}[1]{%
-  \uline{\phantom{#1}%
-  \llap{\contour{white}{#1}%
-}
-
-\usepackage{tgheros}
-\renewcommand*\familydefault{\sfdefault}
-\usepackage[T1]{fontenc}
+\definecolor{text-grey}{gray}{.20}
 
 \pagestyle{fancy}
 \fancyhf{}
@@ -278,34 +261,29 @@ Resume text:
 \raggedright
 \setlength{\tabcolsep}{0in}
 
-\titleformat{\section}{
-    \bfseries \vspace{2pt} \raggedright \large
-}{}{0em}{}[\color{light-grey} {\titlerule[2pt]} \vspace{-4pt}]
+\titleformat{\section}{\bfseries\vspace{2pt}\raggedright\large}{}{0em}{}[{\color{light-grey}\titlerule[1pt]}\vspace{-4pt}]
 
-\newcommand{\resumeItem}[1]{\item\small{#1 \vspace{-1pt}}
+\newcommand{\resumeItem}[1]{\item\small{#1 \vspace{-2pt}}}
 
-\newcommand{\resumeSubheading}[4]{
+\newcommand{\resumeSubheading}[4]{%
   \vspace{-1pt}\item
-    \begin{tabular*}{\textwidth}[t]{l@{\extracolsep{\fill}r}
-      \textbf{#1} & {\color{dark-grey}\small #2}\vspace{1pt}\\
-      \textit{#3} & {\color{dark-grey} \small #4}\\
-    \end{tabular*}\vspace{-4pt}
+    \begin{tabular*}{\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & {\color{dark-grey}\small #2} \\
+      \textit{\small #3} & {\color{dark-grey}\small #4} \\
+    \end{tabular*}\vspace{-4pt}%
 }
 
-\newcommand{\resumeProjectHeading}[2]{
+\newcommand{\resumeProjectHeading}[2]{%
     \item
-    \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}r}
-      #1 & {\color{dark-grey} \\
-    \end{tabular*}\vspace{-4pt}
+    \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+      #1 & {\color{dark-grey}\small #2} \\
+    \end{tabular*}\vspace{-4pt}%
 }
 
-\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}
-\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}$}
-
-\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0in, label={}]}
-\newcommand{\resumeSubHeadingListEnd}{\end{itemize}
-\newcommand{\resumeItemListStart}{\begin{itemize}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{0pt}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-4pt}}
 
 \color{text-grey}
 
@@ -314,12 +292,11 @@ Resume text:
 %----------HEADING----------
 \begin{center}
     \textbf{\Huge [FULL NAME]} \\ \vspace{5pt}
-    \small \faPhone* \texttt{[PHONE]} \hspace{1pt} $|$
-    \hspace{1pt} \faEnvelope \hspace{2pt} \texttt{[EMAIL]} \hspace{1pt} $|$
-    \hspace{1pt} \faLinkedin \hspace{2pt} \texttt{[LINKEDIN]} \hspace{1pt} $|$
-    \hspace{1pt} \faGithub \hspace{2pt} \texttt{[GITHUB]} \hspace{1pt} $|$
-    \hspace{1pt} \faMapMarker* \hspace{2pt}\texttt{[LOCATION]}
-    \\ \vspace{-3pt}
+    \small \faPhone* \ [PHONE] \hspace{2pt}$|$\hspace{2pt}
+    \faEnvelope \ [EMAIL] \hspace{2pt}$|$\hspace{2pt}
+    \faLinkedin \ [LINKEDIN] \hspace{2pt}$|$\hspace{2pt}
+    \faGithub \ [GITHUB] \hspace{2pt}$|$\hspace{2pt}
+    \faMapMarker* \ [LOCATION]
 \end{center}
 
 \section{SUMMARY}
@@ -345,27 +322,27 @@ Resume text:
   \resumeSubHeadingListEnd
 
 \section{PROJECTS}
-    \resumeSubHeadingListStart
-      \resumeProjectHeading
-          {\textbf{[Project Title]} {[Dates]}
-          \resumeItemListStart
-            \resumeItem{[Bullet]}
-          \resumeItemListEnd
-    \resumeSubHeadingListEnd
+  \resumeSubHeadingListStart
+    \resumeProjectHeading
+      {\textbf{[Project Title]}}{[Dates]}
+      \resumeItemListStart
+        \resumeItem{[Bullet]}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
 
 \section{SKILLS}
- \begin{itemize}[leftmargin=0in, label={}]
+ \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{[Category 1]}{: [skills]}\vspace{2pt} \\
-     \textbf{[Category 2]}{: [skills]}
-    }
+     \textbf{[Category 1]}: [skills] \\
+     \textbf{[Category 2]}: [skills]
+    }}
  \end{itemize}
 
 \section{ACHIEVEMENTS}
- \begin{itemize}[leftmargin=0in, label={}]
+ \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{[Achievement]}{: [detail]}
-    }
+     \textbf{[Achievement]}: [detail]
+    }}
  \end{itemize}
 
 \end{document}
@@ -602,6 +579,12 @@ async def generate_resume(payload: GenerateRequest, request: Request):
             max_tokens=8192,
         )
         latex_code = _clean_latex(latex_raw)
+        # Debug: persist the last generated LaTeX (no PII unless DEBUG_LATEX=1)
+        if os.environ.get("DEBUG_LATEX") == "1":
+            try:
+                Path("/tmp/last_resume.tex").write_text(latex_code)
+            except Exception:  # noqa: BLE001
+                pass
         logger.info("LaTeX generated (%d chars)", len(latex_code))
 
         # Steps 3-7 - Overleaf pipeline (blocking I/O, offload to thread)
