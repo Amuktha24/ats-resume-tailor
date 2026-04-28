@@ -230,6 +230,12 @@ function Generator({ formRef }) {
         setStatusIndex(STATUS_STEPS.length - 1);
         setResult(data);
         setLoading(false);
+        console.log(
+          "[ATS] Job success. projectUrl:",
+          data.projectUrl,
+          "pdfBase64 length:",
+          data.pdfBase64?.length
+        );
         return;
       }
       if (data.status === "error") {
@@ -289,17 +295,35 @@ function Generator({ formRef }) {
   };
 
   const handleDownload = () => {
-    if (!result?.pdfBase64) return;
-    const bytes = Uint8Array.from(atob(result.pdfBase64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "tailored_resume.pdf";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    console.log("[ATS] Download clicked. pdfBase64 length:", result?.pdfBase64?.length);
+    if (!result?.pdfBase64) {
+      console.warn("[ATS] No pdfBase64 on result", result);
+      return;
+    }
+    try {
+      const bytes = Uint8Array.from(atob(result.pdfBase64), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "tailored_resume.pdf";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 0);
+      console.log("[ATS] Download triggered. blob size:", blob.size);
+    } catch (err) {
+      console.error("[ATS] Download failed:", err);
+    }
+  };
+
+  const handleOverleafOpen = () => {
+    console.log("[ATS] Open Overleaf clicked. projectUrl:", result?.projectUrl);
+    if (!result?.projectUrl) return;
+    window.open(result.projectUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleRetry = () => {
@@ -440,16 +464,15 @@ function Generator({ formRef }) {
                   <Download className="w-4 h-4" />
                   Download PDF
                 </button>
-                <a
-                  href={result.projectUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={handleOverleafOpen}
                   data-testid="overleaf-link"
+                  type="button"
                   className="px-8 py-4 bg-transparent border border-white/20 text-white font-medium rounded-full hover:bg-white/5 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                 >
                   Open project in Overleaf
                   <ExternalLink className="w-4 h-4" />
-                </a>
+                </button>
               </div>
             </motion.div>
           )}

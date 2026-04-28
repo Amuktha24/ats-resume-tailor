@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import os
 import re
 import time
 import uuid
+import zipfile
 import logging
 from collections import defaultdict, deque
 from pathlib import Path
@@ -493,28 +495,44 @@ def _fetch_csrf(cookie_header: str) -> str:
 
 
 def _create_project(latex_code: str, csrf: str, cookie_header: str) -> str:
+    """Create a real, fully-editable Overleaf project by uploading a zip
+    containing main.tex. Returns the 24-char hex project id.
+
+    We deliberately avoid the older POST /docs (snippet) endpoint because it
+    creates restricted/read-only projects that show 'Restricted' in the editor.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("main.tex", latex_code)
+    buf.seek(0)
     resp = requests.post(
-        "https://www.overleaf.com/docs",
+        "https://www.overleaf.com/project/new/upload",
         headers={
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept": "application/json",
             "Referer": "https://www.overleaf.com/project",
             "Origin": "https://www.overleaf.com",
             "User-Agent": OVERLEAF_UA,
             "Cookie": cookie_header,
-            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Csrf-Token": csrf,
         },
-        data={"_csrf": csrf, "snip": latex_code, "engine": "pdflatex"},
-        allow_redirects=False,
-        timeout=60,
+        files={"qqfile": ("ATS_Resume.zip", buf, "application/zip")},
+        data={"_csrf": csrf, "name": "ATS Tailored Resume"},
+        timeout=120,
     )
-    location = resp.headers.get("Location", "")
-    pid_match = re.search(r"/project/([a-f0-9]{24})", location)
-    if not pid_match:
+    try:
+        body = resp.json()
+    except ValueError:
         raise HTTPException(
             status_code=502,
-            detail="Failed to create Overleaf project (no project ID returned).",
+            detail=f"Overleaf upload failed (status {resp.status_code}).",
         )
-    return pid_match.group(1)
+    pid = body.get("project_id")
+    if not pid:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Overleaf upload succeeded but returned no project_id: {body}",
+        )
+    return pid
 
 
 def _compile_project(project_id: str, csrf: str, cookie_header: str) -> dict:
@@ -527,7 +545,7 @@ def _compile_project(project_id: str, csrf: str, cookie_header: str) -> dict:
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": OVERLEAF_UA,
         },
-        data={"check": "silent", "draft": "true", "stopOnFirstError": "false"},
+        data={"check": "silent", "draft": "false", "stopOnFirstError": "false"},
         timeout=120,
     )
     try:
